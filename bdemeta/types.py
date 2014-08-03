@@ -117,12 +117,12 @@ class Group(Unit):
     def result_type(self):
         return 'library'
 
-class Application(Unit):
+class Loadable(Unit):
     def __init__(self, resolver, path, members, dependencies, flags):
         self._path    = path
         self._members = members
         name          = os.path.basename(path)
-        super(Application, self).__init__(resolver, name, dependencies, flags)
+        super(Loadable, self).__init__(resolver, name, dependencies, flags)
 
     def flags(self, type):
         return self._flags[type]
@@ -142,6 +142,17 @@ class Application(Unit):
             'ldflags': ' ' + ' '.join(ldflags) if ldflags else '',
         },)
 
+class Application(Loadable):
+    def __init__(self, *args):
+        super(Application, self).__init__(*args)
+
     def result_type(self):
         return 'executable'
+
+class Plugin(Loadable):
+    def __init__(self, *args):
+        super(Plugin, self).__init__(*args)
+
+    def result_type(self):
+        return 'shared_library'
 

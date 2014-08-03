@@ -63,6 +63,14 @@ build {output}: cxx-executable {input}{deps}
 build {name}: phony {output}
 
 '''
+    shared_library_template=u'''\
+build {output}: cxx-executable {input}{deps}
+  cflags = -fPIC -shared{cflags}
+  ldflags ={ldflags}
+
+build {name}: phony {output}
+
+'''
 
     join  = lambda l: ' '.join(l)
     pjoin = path.join
@@ -73,6 +81,8 @@ build {name}: phony {output}
             return pjoin('out', 'libs', 'lib{}.a'.format(unit.name()))
         elif unit.result_type() == 'executable':
             return pjoin('out', 'apps', unit.name())
+        elif unit.result_type() == 'shared_library':
+            return pjoin('out', 'plugins', unit.name() + '.so')
         else:
             return None
 
@@ -122,8 +132,6 @@ build {name}: phony {output}
             if unit_tests:
                 file.write(tests_template.format(alias   = unit.name() + '.t',
                                                  targets = join(unit_tests)))
-
-
         elif unit.result_type() == 'executable':
             exec_deps = join([output(u) for u in tsort(traverse((unit,))) if \
                                                       u != unit and output(u)])
@@ -136,6 +144,19 @@ build {name}: phony {output}
                                                   cflags  = c['cflags'],
                                                   ldflags = c['ldflags'],
                                                   name    = unit.name()))
+            defaults.append(output(unit))
+        elif unit.result_type() == 'shared_library':
+            exec_deps = join([output(u) for u in tsort(traverse((unit,))) if \
+                                                      u != unit and output(u)])
+            exec_deps = ' | ' + exec_deps if exec_deps else ''
+
+            c = unit.components()[0]
+            file.write(shared_library_template.format(output  = output(unit),
+                                                      input   = c['input'],
+                                                      deps    = exec_deps,
+                                                      cflags  = c['cflags'],
+                                                      ldflags = c['ldflags'],
+                                                      name    = unit.name()))
             defaults.append(output(unit))
 
     if defaults:
