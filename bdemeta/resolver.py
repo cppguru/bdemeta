@@ -66,6 +66,18 @@ class Resolver(object):
                                                  self._flags[name])
 
         for root in self._roots:
+            candidate = os.path.join(root.strip(), 'plugins', name)
+            if os.path.isdir(candidate):
+                members = bde_items(candidate, 'plugin', name + '.mem')
+                deps    = self._deps[name] | bde_items(candidate,
+                                                      'plugin',
+                                                       name + '.dep')
+                return bdemeta.types.Plugin(self,
+                                            candidate,
+                                            members,
+                                            deps,
+                                            self._flags[name])
+
             candidate = os.path.join(root.strip(), 'applications', name)
             if os.path.isdir(candidate):
                 members = bde_items(candidate, 'application', name + '.mem')
