@@ -2,10 +2,12 @@ from __future__ import print_function
 
 import argparse
 import io
+import json
 import locale
 import os
 import sys
 from collections import defaultdict
+from itertools   import chain
 
 import bdemeta.resolver
 import bdemeta.commands
@@ -130,17 +132,26 @@ def parse_args(args):
     def args_from_file(filename):
         if os.path.isfile(filename):
             with io.open(filename) as f:
-                # Use 'io.open' over 'open' to read file in 'unicode'
-                options = [l[:-1] for l in f.readlines() if l[0] != '#']
-                return ' '.join(options).split()
-        return []
+                args = []
+                for k, v in json.load(f).items():
+                    if isinstance(v, list):
+                        for item in v:
+                            args.append(k)
+                            args.append(item)
+                    else:
+                        args.append(k)
+                        args.append(v)
+                return args
+        else:
+            return []
 
     if sys.version_info.major < 3:
         # Convert arguments to 'unicode' on pre-Python 3
         args = [arg.decode(locale.getpreferredencoding()) for arg in args]
 
-    args = args_from_file(os.path.expanduser('~/.bdemetarc')) + \
-                                           args_from_file('.bdemetarc') + args
+    args = chain(args_from_file(os.path.expanduser('~/.bdemetarc')),
+                 args_from_file('.bdemetarc'),
+                 args)
 
     parser = get_parser()
     args   = parser.parse_args(args=args)
