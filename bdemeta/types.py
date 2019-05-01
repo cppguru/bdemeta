@@ -1,147 +1,103 @@
+# bdemeta.types
+
 import os
-from itertools import chain
+from pathlib import Path
+from typing import Dict, Iterator, List, Optional, Sequence, Union
 
-from bdemeta.graph import traverse, tsort
+Config = Dict[str, Union[List[Path], List[str], Dict[str, str]]]
 
-class Unit(object):
-    def __init__(self, resolver, name, dependencies, flags):
-        self._resolver     = resolver
-        self._name         = name
-        self._dependencies = dependencies
-        self._flags        = flags
+class Identification:
+    def __init__(self,
+                 type:    str,
+                 path:    Optional[Path] = None,
+                 package: Optional[str] = None) -> None:
+        self.type    = type
+        self.path    = path
+        self.package = package
 
-    def __eq__(self, other):
-        return self._name == other._name
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Identification):
+            return (self.type, self.path, self.package) == \
+                                        (other.type, other.path, other.package)
+        else:
+            return False
 
-    def __ne__(self, other):
-        # Note: in Python 2, != is not defined as not ==, so we must implement
-        # this method
-        return not self == other
+class Target:
+    def __init__(self, name: str, dependencies: Sequence['Target']) -> None:
+        self.name                     = name
+        self._dependencies            = dependencies
+        self.has_output               = True
+        self.lazily_bound             = False
+        self.overrides: Optional[str] = None
 
-    def __hash__(self):
-        return hash(self._name)
+    def dependencies(self) -> Sequence['Target']:
+        return self._dependencies
 
-    def name(self):
-        return self._name
+class Package(Target):
+    def __init__(self,
+                 path: str,
+                 dependencies: Sequence[Target],
+                 components: List[Dict[str, Optional[str]]]) -> None:
+        Target.__init__(self, os.path.basename(path), dependencies)
+        self._path       = path
+        self._components = components
 
-    def dependencies(self):
-        return frozenset(self._resolver(name) for name in self._dependencies)
+    def includes(self) -> Iterator[str]:
+        yield self._path
 
-    def flags(self, type):
-        return self._flags[type]
+    def headers(self) -> Iterator[str]:
+        for component in self._components:
+            if component['header'] is not None:
+                yield component['header']
 
-    def components(self):
-        return {}
+    def sources(self) -> Iterator[str]:
+        for component in self._components:
+            if component['source'] is not None:
+                yield component['source']
 
-    def result_type(self):
-        return None
+    def drivers(self) -> Iterator[str]:
+        for component in self._components:
+            if component['driver'] is not None:
+                yield component['driver']
 
-class Package(Unit):
-    def __init__(self, resolver, path, members, dependencies, flags):
-        self._path    = path
-        self._members = members
-        name          = os.path.basename(path)
-        super(Package, self).__init__(resolver, name, dependencies, flags)
+class Group(Target):
+    def __init__(self,
+                 path: str,
+                 dependencies: Sequence[Target],
+                 packages: Sequence[Package]) -> None:
+        Target.__init__(self, os.path.basename(path), dependencies)
+        self._path     = path
+        self._packages = list(packages)
 
-    def path(self):
+    def includes(self) -> Iterator[str]:
+        for package in self._packages:
+            yield os.path.join(self._path, package.name)
+
+    def headers(self) -> Iterator[str]:
+        for package in self._packages:
+            for header in package.headers():
+                yield header
+
+    def sources(self) -> Iterator[str]:
+        for package in self._packages:
+            for source in package.sources():
+                yield source
+
+    def drivers(self) -> Iterator[str]:
+        for package in self._packages:
+            for driver in package.drivers():
+                yield driver
+
+class CMake(Target):
+    def __init__(self, name: str, path: str) -> None:
+        Target.__init__(self, name, [])
+        self._path = path
+
+    def path(self) -> str:
         return self._path
 
-    def flags(self, type):
-        flags = self._flags[type][:]
-        if type == 'c':
-            flags.append('-I{}'.format(self._path))
-        return ' '.join(flags)
-
-    def members(self):
-        return self._members
-
-class Group(Unit):
-    def __init__(self, resolver, path, members, dependencies, flags):
-        self._path    = path
-        self._members = members
-        name          = os.path.basename(path)
-        super(Group, self).__init__(resolver, name, dependencies, flags)
-
-    def _packages(self):
-        return tsort(self._resolver(member) for member in self._members)
-
-    def flags(self, type):
-        flags = []
-        flags = flags + self._flags[type]
-        flags = flags + [p.flags(type) for p in self._packages()]
-        if type == 'ld':
-            flags = flags + ['-Lout/libs', '-l' + self._name]
-        return list(filter(lambda x: x != '', flags))
-
-    def components(self):
-        deps = tsort(traverse(frozenset((self,))))
-        deps.remove(self)
-        deps_cflags  = list(chain(*[d.flags('c')  for d in deps]))
-        deps_ldflags = list(chain(*[d.flags('ld') for d in deps]))
-
-        result = []
-        for package in self._packages():
-            package_deps    = tsort(traverse(frozenset((package,))))
-            package_cflags  = [p.flags('c')  for p in package_deps \
-                                                        if p.flags('c')  != '']
-            package_ldflags = [p.flags('ld') for p in package_deps \
-                                                        if p.flags('ld') != '']
-
-            group_cflags  =                    self._flags['c']
-            group_ldflags = self.flags('ld') + self._flags['ld']
-
-            cflags  = list(sorted(chain(package_cflags,
-                                        group_cflags,
-                                        deps_cflags)))
-            ldflags = list(sorted(chain(package_ldflags,
-                                        group_ldflags,
-                                        deps_ldflags)))
-
-            for m in package.members():
-                result.append({
-                    'type':   'object',
-                    'input':   m['path'],
-                    'cflags': ' ' + ' '.join(cflags) if cflags else '',
-                    'output':  m['name'] + '.o',
-                })
-                if m['driver']:
-                    result.append({
-                        'type':    'test',
-                        'input':    m['driver'],
-                        'cflags':  ' ' + ' '.join(cflags)  if cflags else '',
-                        'ldflags': ' ' + ' '.join(ldflags) if ldflags else '',
-                        'output':   m['name'] + '.t',
-                    })
-        return tuple(result)
-
-    def result_type(self):
-        return 'library'
-
-class Application(Unit):
-    def __init__(self, resolver, path, members, dependencies, flags):
-        self._path    = path
-        self._members = members
-        name          = os.path.basename(path)
-        super(Application, self).__init__(resolver, name, dependencies, flags)
-
-    def flags(self, type):
-        return self._flags[type]
-
-    def components(self):
-        deps = tsort(traverse(frozenset((self,))))
-        cflags  = self._flags['c']  + list(chain(*[d.flags('c')  \
-                                                               for d in deps if d != self]))
-        ldflags = self._flags['ld'] + list(chain(*[d.flags('ld') \
-                                                               for d in deps if d != self]))
-
-        inputs = ' '.join((os.path.join(self._path, m + '.cpp') \
-                                               for m in sorted(self._members)))
-        return ({
-            'cflags':  ' ' + ' '.join(cflags) if cflags else '',
-            'input':   inputs,
-            'ldflags': ' ' + ' '.join(ldflags) if ldflags else '',
-        },)
-
-    def result_type(self):
-        return 'executable'
+class Pkg(Target):
+    def __init__(self, name: str, package: str) -> None:
+        Target.__init__(self, name, [])
+        self.package = package
 

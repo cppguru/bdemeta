@@ -1,29 +1,35 @@
-from bdemeta.functional import memoize
+# bdemeta.graph
 
-@memoize
-def traverse(ns):
-    result = frozenset(ns)
-    for n in ns:
-        result = result.union(traverse(n.dependencies()))
-    return result
+from typing import Callable, Iterable, List, Set
 
-@memoize
-def tsort(nodes):
-    tsorted = []
-    marks   = {}
+class CyclicGraphError(RuntimeError):
+    def __init__(self, cycle: Iterable[str]) -> None:
+        self.cycle = cycle
 
-    def visit(node):
-        if node.name() not in marks:
-            marks[node.name()] = 'working'
-            for child in node.dependencies():
-                visit(child)
-            marks[node.name()] = 'done'
-            tsorted.insert(0, node)
-        elif marks[node.name()] == 'done':
+Normalize = Callable[[Iterable[str]], Iterable[str]]
+def tsort(nodes:       Iterable[str],
+          adjacencies: Callable[[str], Iterable[str]],
+          normalize:   Normalize=lambda x: x) -> List[str]:
+    visited: Set[str]    = set()
+    postorder: List[str] = []
+
+    def dft(node: str, stack: List[str]) -> None:
+        if node in visited:
             return
-        else:
-            raise RuntimeError('cyclic graph')
 
-    [visit(n) for n in nodes]
-    return tsorted
+        if node in stack:
+            raise CyclicGraphError(list(stack) + [node])
+
+        stack.append(node)
+        for adjacent in normalize(adjacencies(node)):
+            dft(adjacent, stack)
+        stack.pop()
+
+        visited.add(node)
+        postorder.insert(0, node)
+
+    for node in normalize(nodes):
+        dft(node, [])
+
+    return postorder
 

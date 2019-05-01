@@ -1,219 +1,143 @@
-[![Build Status](https://travis-ci.org/frutiger/bdemeta.svg?branch=master)](https://travis-ci.org/frutiger/bdemeta)
-[![Coverage Status](https://coveralls.io/repos/frutiger/bdemeta/badge.png?branch=master)](https://coveralls.io/r/frutiger/bdemeta?branch=master)
+[![Build Status](https://img.shields.io/travis/frutiger/bdemeta/master.svg?style=flat-square&logo=linux&logoColor=white)](https://travis-ci.org/frutiger/bdemeta)
+[![Build Status](https://img.shields.io/appveyor/ci/frutiger/bdemeta/master.svg?style=flat-square&logo=windows)](https://ci.appveyor.com/project/frutiger/bdemeta)
+[![Coverage Status](https://img.shields.io/coveralls/github/frutiger/bdemeta/master.svg?style=flat-square)](https://coveralls.io/github/frutiger/bdemeta?branch=master)
 
-##bdemeta - build and test BDE-style code
+# bdemeta
 
-### SYNOPSIS
+Build and test BDE-style code.
 
-`bdemeta [--root ROOT] [--cflag NAME:FLAG] [--ldflag NAME:FLAG] [--dependency NAME:DEPENDENCY] MODE ...`<br/>
+## Synopsis
 
-Where `MODE` is one of:
+`bdemeta walk TARGET [TARGET ...]`<br/>
+`bdemeta dot TARGET [TARGET ...]`<br/>
+`bdemeta cmake TARGET [TARGET ...]`<br/>
+`bdemeta runtests [TEST ...]`
 
-`bdemeta walk GROUP [GROUP ...]`<br/>
-`bdemeta cflags GROUP [GROUP ...]`<br/>
-`bdemeta ldflags GROUP [GROUP ...]`<br/>
-`bdemeta ninja [--cc CC] [--cxx CXX] [--ar AR] GROUP [GROUP ...]`<br/>
-`bdemeta runtests [TEST ...]`:
-
-### DESCRIPTION
+## Description
 
 `bdemeta` is a set of basic tools to assist building and testing [BDE-style
-source trees](https://github.com/bloomberg/bde).  It can generate [ninja build
-files](https://github.com/martine/ninja) for a particular package group,
-provide `cflags`/`ldflags` (`-I`/`-L/-l` rules respectively by default, along
-with any user-supplied ones) when building applications that depend on such
-package groups.  It can also run all the unit tests for a particular package
-group.
+source trees](https://github.com/bloomberg/bde).  It can generate
+[`CMake`](https://cmake.org) files for package groups and test drivers within
+them.  It can also invoke BDE-style test drivers.
 
-`bdemeta` supports finding package groups across [disconnected
-directory structures](#roots), [arbitrary flags](#flags) for any given
-dependency, and [dependencies that are not actually package groups](#units).
+`bdemeta` supports finding targets across [disconnected directory
+structures](#roots).
 
-The contents of `~/.bdemetarc` and `.bdemetarc` will be considered as
-command line flags in addition to those specified at invocation.
+## Installation
 
-### INSTALLATION
-
-Platforms running Python 2.7, 3.3 or 3.4 are supported.  Install using `pip`:
+Platforms running Python 3.6 or newer are supported.  Install using `pip`:
 
     $ pip install git+https://github.com/frutiger/bdemeta
 
-### OPTIONS
+## Modes
 
-`bdemeta` takes any number of the following options:
+`bdemeta` runs in one of four modes as given by the first positional argument:
 
-  * `--root ROOT`
-    Add the specified `ROOT` to the package group search path
-
-  * `--cflag NAME:FLAG`
-    Append the specified `FLAG` when generating cflags for the dependency
-    with the specified `NAME`.
-
-  * `--ldflag NAME:FLAG`
-    Append the specified `FLAG` when generating ldflags for the dependency
-    with the specified `NAME`.
-
-  * `--dependency NAME:DEPENDENCY`
-    Consider the specified `NAME` to have the specified `DEPENDENCY`.
-
-`bdemeta` runs in one of five modes as given by the first positional argument:
-
-  * `walk GROUP [GROUP ...]`:
+  * `walk TARGET [TARGET ...]`:<br/>
     Walk and topologically sort dependencies
 
-  * `cflags GROUP [GROUP ...]`:
-    Produce flags for compiling dependents
+  * `dot TARGET [TARGET ...]`:<br/>
+    Generate a directed graph in the DOT language
 
-  * `ldflags GROUP [GROUP ...]`:
-    Produce ldflags for linking dependents
+  * `cmake TARGET [TARGET ...]`:<br/>
+    Generate CMake files in the current directory
 
-  * `ninja [--cc CC] [--cxx CXX] [--ar AR] GROUP [GROUP ...]`:
-    Generate a ninja build file
+  * `runtests [TEST ...]`:<br/>
+    Run specified or discovered unit tests
 
-  * `runtests [TEST ...]`:
-    Run BDE-style unit tests
+## Configuration
 
-### ROOTS
-<a name="roots"></a>
+`bdemeta` is configured by a JSON configuration file in the current directory
+called `.bdemeta.conf`.  The configuration is as follows:
 
-`bdemeta` will look for package groups in directories specified by (possibly
-multiple) `--root` arguments.  This makes it easy to build code across multiple
-BDE-style repositories, including your own.
+    {
+        "roots": [
+            "<root>",
+            ...
+        ],
+        "providers": {
+            "<target1>: ["<target2>", "<target3>", ...],
+            ...
+        },
+        "runtime_libraries": ["<target4>", "<target5">, ...],
+        "pkg_configs": {
+            "<target6>": "<pkg1>",
+            ...
+        }
+    }
 
-### FLAGS
-<a name="flags"></a>
+The meaning of each block is explained below.
 
-Compiler and linker flags may be specified in addition to the ones generated by
-the structure of the package group.  These are specified by supplying
-`--cflag NAME:FLAG` or `--ldflag NAME:FLAG` where `NAME` specifies the name of
-the dependency, and `FLAG` the appropriate cflag/ldflag.  For example,
-specifying `--cflag BSL:-DBDE_BUILD_TARGET_EXC` will provide that as a flag for
-`bsl` and every dependent of `bsl`.
+### Roots
 
-### UNITS
-<a name="units"></a>
+`bdemeta` will look for targets in directories specified by (possibly multiple)
+`<root>`s in the configuration.  This makes it easy to build code across
+multiple BDE-style repositories, including your own.
 
-`bdemeta` supports dependencies that are not package groups (i.e. 'units').
-This can be useful when depending on headers and libraries provided by the
-system.  By default, such dependencies introduce no new flags unless such a
-flag has been specified with a `--cflag NAME:FLAG` or `--ldflag NAME:FLAG`.  In
-order to ensure that link lines are correctly topologically sorted, `bdemeta`
-will require dependency information that can be specified with `--dependency
-NAME:DEPENDENCY`.
+In particular, `bdemeta` will search for targets by name within each `<root>`
+directory:
 
-### EXAMPLES
+  * package groups in `<root>/groups/<name>`
+  * standalone pacakges in `<root>/[adapters|nodeaddons|stanadlone]/<name>`
+  * third party CMake packages in:
+      * `<root>/thirdparty/CMakeLists.txt`
+      * `<root>/CMakeLists.txt`
 
-The following examples demonstrate working with the ['BDE' source
-code](https://github.com/bloomberg/bde) on a Mac OS X with the Xcode
-Commandline Tools installed.
+### Target providers
 
-First, clone the 'BDE' repository:
+A number of third party targets may be specified by a single `CMakeLists.txt`.
+However, the dependency from a target is on another target (i.e. library), not
+on a directory.  A "target provider" may be used to specify that a directory
+containing a `CMakeLists.txt` will actually provide other targets.
 
-    $ git clone https://github.com/bloomberg/bde
+The sample configuration above indicates that the `CMakeLists.txt` in
+`<target1>` will actually provide `<target2>` and `<target3>`.  This allows
+`bdemeta` to consider the targets `<target2>` and `<target3>` found once it
+finds `<target1>`.
 
-Next, go into your build directory and craft the following `.bdemetarc` file in
-that directory:
+Note that the `providers` block is optional.
 
-    $ cd /path/to/build/directory
-    $ cat .bdemetarc
-    --root /path/to/bde/clone
-    --cflag bsl:-DBDE_BUILD_TARGET_EXC
-    --cflag bsl:-DBDE_BUILD_TARGET_MT
-    --cflag bdl+decnumber:-I/path/to/bde/clone/groups/bdl/bdl+decnumber/common
+### Runtime libraries
 
-Note that the special 'bdl+decnumber' cflag is needed as that package has
-special build rules.
+Some platforms require undefined symbols to be provided at link time.  However,
+when building plug-in libraries, some symbols are expected to be supplied by
+the hosting executable at runtime.  Enumerating the libraries that contain
+symbols that will be supplied at runtime allows `bdemeta` to ensure that any
+targets that depend those libraries are linked allowing undefined symbols.
 
-#### Example 1: Building and testing package groups
+The sample configuration indicates that any target depending (transitively or
+not) on `<target4>` or `<target5>` should be linked allowing undefined symbols.
 
-First, test that the dependencies can be traversed correctly:
+Note that the `runtime_libraries` block is optional.
 
-    $ bdemeta walk bdl
-    bdl bsl
+### Package Config
 
-Next, generate the ninja build file for `bdl` and all its transitive
-dependencies (i.e. `bsl`) into `build.ninja`:
+A target may have its dependencies defined by the `pkg-config`, already
+available on the system.  The `pkg_configs` block is consulted to map a target
+name `<target6>` to a `pkg-config` package named `<pkg1>`.  This block
+is only consulted if the search through every root as described above has been
+exhausted.
 
-    $ bdemeta ninja bdl > build.ninja
+Note that the `pkg_configs` block is optional.
 
-Then, build a static library for just `bsl` into `out/libs`:
+## CMake
 
-    $ ninja bsl
+For every target specified to the `cmake` subcommand, `bdemeta` walks all
+transitive dependencies based on the configuration described above.
 
-Next, build a static library for `bdl` and each of its transitive dependencies:
+For each BDE-type dependency, `bdemeta` generates:
 
-    $ ninja bdl
+  * a CMake library target
+  * a CMake executable target for each test driver
+  * a CMake custom target comprising all the test drivers, named `<name>.t`
+  * a 'development' install target for the library & headers
+  * a 'runtime' install target for the library
 
-Then, build a specific test driver:
+For each `PkgConfig`-type dependency, `bdemeta` generates a CMake interface
+target consisting of the discovered include directories, compile options and
+link libraries.
 
-    $ ninja bsls_platform.t
-
-Next, build test drivers for a specific package group:
-
-    $ ninja bsl.t
-
-Then, build test drivers for all package groups:
-
-    $ ninja tests
-
-Next, run a specific test driver:
-
-    $ bdemeta runtests bsls_platform.t
-
-Finally, run all previously built test drivers:
-
-    $ bdemeta runtests
-
-#### Example 2: Building an application package
-
-First, create a root for your application code:
-
-    $ mkdir -p /my/root
-
-Then, create an 'applications' directory inside it.  This will contain all the
-application standalone packages.
-
-    $ mkdir /my/root/applications
-
-Next, create a standalone package for your application, called `m_myapp`:
-
-    $ mkdir /my/root/applications/m_myapp
-
-Then, create the metadata for this application:
-
-    $ mkdir /my/root/applications/m_myapp/application
-    $ echo 'bsl' > /my/root/applications/m_myapp/application/m_myapp.dep
-    $ echo 'myapp.m.cpp' > /my/root/applications/m_myapp/application/m_myapp.mem
-
-Next, go to your build directory:
-
-    $ cd /path/to/build/directory
-
-Then, add your new root to your `.bdemetarc` file:
-
-    $ echo '--root /my/root' >> .bdemetarc
-
-Next, test that the dependencies can be traversed correctly:
-
-    $ bdemeta walk m_myapp
-    m_myapp bsl
-
-Then, generate the ninja build file into `build.ninja`:
-
-    $ bdemeta ninja m_myapp > build.ninja
-
-Finally, build your application into `out/apps`:
-
-    $ ninja m_myapp
-
-#### Example 3: Generating cflags for external tools
-
-Some external tools, e.g. 'YouCompleteMe' require a list of cflags.  To
-generate valid cflags, simply run the following command:
-
-    $ bdemeta cflags bdl
-
-### LICENSE
+## License
 
 Copyright (C) 2013 Masud Rahman
 
