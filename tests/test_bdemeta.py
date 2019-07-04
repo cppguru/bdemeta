@@ -1,14 +1,14 @@
 # tests.test_bdemeta
 
 import shutil
+import sys
 from io       import StringIO
 from pathlib  import Path as P
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
 from bdemeta.__main__ import InvalidArgumentsError, InvalidPathError, \
-                             NoConfigError, run, main, file_writer,   \
-                             test_runner, get_columns
+                             NoConfigError, run, main, test_runner, get_columns
 from bdemeta.cmake    import generate
 from bdemeta.resolver import resolve, TargetResolver
 from bdemeta.testing  import run_tests, MockRunner, RunResult
@@ -32,24 +32,24 @@ class NoConfigErrorTest(TestCase):
 
     def test_no_config_error(self):
         with self.assertRaises(NoConfigError):
-            run(None, None, None, None, None, ['walk', 'foo'])
+            run(None, None, None, None, ['walk', 'bdemeta.json', 't'])
 
         stderr = StringIO()
-        main(None, stderr, None, None, None, [__name__, 'walk', 'foo'])
+        main(None, stderr, None, None, [__name__, 'walk', 'bdemeta.json', 't'])
         assert(stderr.getvalue())
 
     def test_args_error_if_config_unneeded(self):
         with self.assertRaises(InvalidArgumentsError):
-            run(None, None, None, None, None, [])
+            run(None, None, None, None, [])
 
         stderr = StringIO()
-        main(None, stderr, None, None, None, [__name__])
+        main(None, stderr, None, None, [__name__])
         assert(stderr.getvalue())
 
 class InvalidPathErrorTest(TestCase):
     def setUp(self):
         self._patcher = OsPatcher({
-            '.bdemeta.conf': '{ "roots": ["unlikely_path_that_exists"] }',
+            'bdemeta.json': '{ "roots": ["unlikely_path_that_exists"] }',
         })
 
     def tearDown(self):
@@ -57,10 +57,10 @@ class InvalidPathErrorTest(TestCase):
 
     def test_invalid_path_error(self):
         with self.assertRaises(InvalidPathError):
-            run(None, None, None, None, None, ['walk', 'foo'])
+            run(None, None, None, None, ['walk', 'bdemeta.json', 't'])
 
         stderr = StringIO()
-        main(None, stderr, None, None, None, [__name__, 'walk', 'foo'])
+        main(None, stderr, None, None, [__name__, 'walk', 'bdemeta.json', 't'])
         assert(stderr.getvalue())
 
 class RunTest(TestCase):
@@ -71,7 +71,7 @@ class RunTest(TestCase):
             ]
         }
         self._patcher = OsPatcher({
-            '.bdemeta.conf': '{"roots": ["r"]}',
+            'bdemeta.json': '{"roots": ["r"]}',
             'r': {
                 'groups': {
                     'gr1': {
@@ -107,17 +107,22 @@ class RunTest(TestCase):
 
     def test_no_mode_error(self):
         with self.assertRaises(InvalidArgumentsError) as e:
-            run(None, None, None, None, None, [])
+            run(None, None, None, None, [])
         assert('No mode specified' == e.exception.args[0])
 
     def test_unknown_mode_error(self):
         with self.assertRaises(InvalidArgumentsError) as e:
-            run(None, None, None, None, None, ['foo'])
+            run(None, None, None, None, ['foo'])
         assert('Unknown mode \'{}\''.format('foo') == e.exception.args[0])
+
+    def test_no_config_error(self):
+        with self.assertRaises(InvalidArgumentsError) as e:
+            run(None, None, None, None, ['walk'])
+        assert('No config specified' == e.exception.args[0])
 
     def test_target_with_dependencies(self):
         f = StringIO()
-        run(f, None, None, None, None, ['walk', 'gr2'])
+        run(f, None, None, None, ['walk', 'bdemeta.json', 'gr2'])
 
         r  = TargetResolver(self._config)
         us = resolve(r, ['gr2'])
@@ -127,7 +132,7 @@ class RunTest(TestCase):
 class NoRootTest(TestCase):
     def setUp(self):
         self._patcher = OsPatcher({
-            '.bdemeta.conf': '{"roots": ["r"]}',
+            'bdemeta.json': '{"roots": ["r"]}',
         })
 
     def tearDown(self):
@@ -135,13 +140,17 @@ class NoRootTest(TestCase):
 
     def test_no_root_error(self):
         with self.assertRaises(InvalidPathError) as e:
-            run(None, None, None, None, None, ['walk'])
+            run(None, None, None, None, ['walk', 'bdemeta.json'])
         assert(P('r') == e.exception.args[0])
 
     def test_no_root_main_error(self):
         stdout = StringIO()
         stderr = StringIO()
-        main(stdout, stderr, None, None, None, [__name__, 'walk', 'p1'])
+        main(stdout,
+             stderr,
+             None,
+             None,
+             [__name__, 'walk', 'bdemeta.json', 'p1'])
         assert(not stdout.getvalue())
         assert(stderr.getvalue())
         assert('r' in stderr.getvalue())
@@ -149,9 +158,9 @@ class NoRootTest(TestCase):
 class GraphTest(TestCase):
     def setUp(self):
         self._patcher = OsPatcher({
-            '.bdemeta.conf': '{"roots": ["r"]}',
+            'bdemeta.json': '{"roots": ["r"]}',
             'r': {
-                'adapters': {
+                'standalones': {
                     'p1': {
                         'package': {
                             'p1.dep': '',
@@ -173,7 +182,7 @@ class GraphTest(TestCase):
 
     def test_graph(self):
         f = StringIO()
-        run(f, None, None, None, None, ['dot', 'p2'])
+        run(f, None, None, None, ['dot', 'bdemeta.json', 'p2'])
         lines = f.getvalue().split('\n')
         assert('digraph G {'      == lines[0])
         assert('    "p2" -> "p1"' == lines[1])
@@ -187,9 +196,9 @@ class CMakeTest(TestCase):
             ]
         }
         self._patcher = OsPatcher({
-            '.bdemeta.conf': '{"roots": ["r"]}',
+            'bdemeta.json': '{"roots": ["r"]}',
             'r': {
-                'adapters': {
+                'standalones': {
                     'p': {
                         'package': {
                             'p.dep': '',
@@ -204,29 +213,23 @@ class CMakeTest(TestCase):
         self._patcher.reset()
 
     def test_generate_cmake(self):
-        output = StringIO()
+        output1 = StringIO()
 
-        f1 = {}
-        w1 = get_filestore_writer(f1)
+        run(output1, None, output1, None, ['cmake', 'bdemeta.json', 'p'])
 
-        run(output, None, w1, None, None, ['cmake', 'p'])
+        r       = TargetResolver(self._config)
+        p       = resolve(r, 'p')
+        output2 = StringIO()
+        generate(p, output2)
 
-        r  = TargetResolver(self._config)
-        p  = resolve(r, 'p')
-        f2 = {}
-        w2 = get_filestore_writer(f2)
-        generate(p, w2)
-
-        assert(f1.keys() == f2.keys())
-        for k in f1:
-            assert(f1[k].getvalue() == f2[k].getvalue())
+        assert(output1.getvalue() == output2.getvalue())
 
 class MainTest(TestCase):
     def setUp(self):
         self._patcher = OsPatcher({
-            '.bdemeta.conf': '{"roots": ["r"]}',
+            'bdemeta.json': '{"roots": ["r"]}',
             'r': {
-                'adapters': {
+                'standalones': {
                     'p1': {
                         'package': {
                             'p1.dep': '',
@@ -260,20 +263,24 @@ class MainTest(TestCase):
 
     def test_walk(self):
         stdout = StringIO()
-        main(stdout, None, None, None, None, [None, 'walk', 'p2'])
+        main(stdout, None, None, None, [None, 'walk', 'bdemeta.json', 'p2'])
         assert('p2 p1\n' == stdout.getvalue())
 
     def test_error(self):
         stdout = StringIO()
         stderr = StringIO()
-        main(stdout, stderr, None, None, None, [__name__, 'foo'])
+        main(stdout, stderr, None, None, [__name__, 'foo'])
         assert(not stdout.getvalue())
         assert(stderr.getvalue())
 
     def test_cyclic_error(self):
         stdout = StringIO()
         stderr = StringIO()
-        main(stdout, stderr, None, None, None, [__name__, 'walk', 'p3'])
+        main(stdout,
+             stderr,
+             None,
+             None,
+             [__name__, 'walk', 'bdemeta.json', 'p3'])
         assert(not stdout.getvalue())
         assert(stderr.getvalue())
         assert('p3' in stderr.getvalue())
@@ -282,7 +289,11 @@ class MainTest(TestCase):
     def test_not_found_error(self):
         stdout = StringIO()
         stderr = StringIO()
-        main(stdout, stderr, None, None, None, [__name__, 'walk', 'p5'])
+        main(stdout,
+             stderr,
+             None,
+             None,
+             [__name__, 'walk', 'bdemeta.json', 'p5'])
         assert(not stdout.getvalue())
         assert(stderr.getvalue())
         assert('p5' in stderr.getvalue())
@@ -298,27 +309,20 @@ class NoConfigMainTest(TestCase):
     def test_help_text(self):
         stdout = StringIO()
         stderr = StringIO()
-        main(stdout, stderr, None, None, None, [__name__])
+        main(stdout, stderr, None, None, [__name__])
         assert(not stdout.getvalue())
         assert(stderr.getvalue())
 
     def test_no_config_error(self):
         stdout = StringIO()
         stderr = StringIO()
-        main(stdout, stderr, None, None, None, [__name__, 'walk', 'p1'])
+        main(stdout,
+             stderr,
+             None,
+             None,
+             [__name__, 'walk', 'bdemeta.json', 'p1'])
         assert(not stdout.getvalue())
         assert(stderr.getvalue())
-
-class FileWriterTest(TestCase):
-    def test_file_writer(self):
-        content = "hello world"
-        def write(f):
-            f.write(content)
-        with TemporaryDirectory() as d:
-            path = P(d)/'foo'
-            file_writer(path, write)
-            with open(path) as f:
-                assert(f.read() == content)
 
 class RunTestTest(TestCase):
     def test_running_tests(self):
@@ -327,7 +331,6 @@ class RunTestTest(TestCase):
         runner1 = MockRunner('sfsf')
         main(stdout1,
              stderr1,
-             None,
              runner1,
              lambda: 80,
              [__name__, 'runtests', 'foo'])
@@ -343,15 +346,17 @@ class RunTestTest(TestCase):
 
 class TestRunnerTest(TestCase):
     def test_success(self):
-        result = test_runner(["python", "-c", "import sys; sys.exit(0)"])
+        result = test_runner([sys.executable, "-c", "import sys; sys.exit(0)"])
         assert(result == RunResult.SUCCESS)
 
     def test_failure(self):
-        result = test_runner(["python", "-c", "import sys; sys.exit(1)"])
+        result = test_runner([sys.executable, "-c", "import sys; sys.exit(1)"])
         assert(result == RunResult.FAILURE)
 
     def test_no_such_case(self):
-        result = test_runner(["python", "-c", "import sys; sys.exit(-1)"])
+        result = test_runner([sys.executable,
+                              "-c",
+                              "import sys; sys.exit(-1)"])
         assert(result == RunResult.NO_SUCH_CASE)
 
 class TerminalSizeTest(TestCase):

@@ -8,9 +8,9 @@ Build and test BDE-style code.
 
 ## Synopsis
 
-`bdemeta walk TARGET [TARGET ...]`<br/>
-`bdemeta dot TARGET [TARGET ...]`<br/>
-`bdemeta cmake TARGET [TARGET ...]`<br/>
+`bdemeta walk CONFIG TARGET [TARGET ...]`<br/>
+`bdemeta dot CONFIG TARGET [TARGET ...]`<br/>
+`bdemeta cmake CONFIG TARGET [TARGET ...]`<br/>
 `bdemeta runtests [TEST ...]`
 
 ## Description
@@ -33,26 +33,31 @@ Platforms running Python 3.6 or newer are supported.  Install using `pip`:
 
 `bdemeta` runs in one of four modes as given by the first positional argument:
 
-  * `walk TARGET [TARGET ...]`:<br/>
+  * `walk CONFIG TARGET [TARGET ...]`:<br/>
     Walk and topologically sort dependencies
 
-  * `dot TARGET [TARGET ...]`:<br/>
+  * `dot CONFIG TARGET [TARGET ...]`:<br/>
     Generate a directed graph in the DOT language
 
-  * `cmake TARGET [TARGET ...]`:<br/>
-    Generate CMake files in the current directory
+  * `cmake CONFIG TARGET [TARGET ...]`:<br/>
+    Generate a CMake lists file
 
   * `runtests [TEST ...]`:<br/>
     Run specified or discovered unit tests
 
 ## Configuration
 
-`bdemeta` is configured by a JSON configuration file in the current directory
-called `.bdemeta.conf`.  The configuration is as follows:
+`bdemeta` is configured by a JSON configuration file supplied as the first
+argument to the `walk`, `dot` and `cmake` modes.  The configuration is as
+follows:
 
     {
         "roots": [
             "<root>",
+            ...
+        ],
+        "standalones": [
+            "<standalone>",
             ...
         ],
         "providers": {
@@ -78,10 +83,13 @@ In particular, `bdemeta` will search for targets by name within each `<root>`
 directory:
 
   * package groups in `<root>/groups/<name>`
-  * standalone pacakges in `<root>/[adapters|nodeaddons|stanadlone]/<name>`
+  * standalone packages in `<root>/standalones/<name>`
   * third party CMake packages in:
       * `<root>/thirdparty/CMakeLists.txt`
       * `<root>/CMakeLists.txt`
+
+The set of directories searched for standalone packages can be extended by
+specifying multiple `<standalone>` directories in the configuration.
 
 ### Target providers
 
